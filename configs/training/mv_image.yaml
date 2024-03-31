@@ -1,0 +1,72 @@
+name: mv_image
+model:
+  num_views: 6
+  pretrained: lambdalabs/sd-image-variations-diffusers
+  pretrained_unet:
+  unet:
+    target: models.model.UNetMV2DConditionModel
+    params:
+      camera_embedding_type: e_de_da_sincos
+      projection_class_embeddings_input_dim: 10
+      num_views: 6
+      sample_size: 32
+      zero_init_conv_in: true
+      zero_init_camera_projection: true
+      cd_attention_last: false
+      cd_attention_mid: false
+      multiview_attention: true
+      sparse_mv_attention: false
+      mvcd_attention: false
+datasets:
+  train_dataset:
+    target: datasets.MVImageDepthDataset
+    params:
+      root: ../new_renderings
+      split: train
+      bg_color: three_choices
+      mix_rgb_depth: true
+  val_dataset:
+    target: datasets.MVImageDepthDataset
+    params:
+      root: ../new_renderings
+      split: val
+      bg_color: white
+      mix_rgb_depth: true
+  train_val_dataset:
+    target: datasets.MVImageDepthDataset
+    params:
+      root: ../new_renderings
+      split: train_val
+      bg_color: white
+      mix_rgb_depth: true
+training:
+  resume_from_checkpoint: null
+  trainable_modules: null
+  output_dir: outputs/mv_image
+  mixed_precision: fp16
+  use_ema: true
+  log_with: tensorboard
+  batch_size: 4
+  max_train_steps: 20000
+  gradient_accumulation_steps: 16
+  gradient_checkpointing: true
+  checkpointing_steps: 5000
+  learning_rate: 1e-4
+  optimizer:
+    target: torch.optim.AdamW
+    params:
+      betas: [0.9, 0.999]
+      weight_decay: 1e-2
+      eps: 1e-8
+  lr_scheduler:
+    target: diffusers.optimization.get_scheduler
+    params:
+      name: constant_with_warmup
+      num_warmup_steps: 100
+  condition_drop_rate: 0.05
+  condition_drop_type: drop_as_a_whole
+  snr_gamma: 5.0
+  max_grad_norm: 1.0
+  validation_steps: 1250
+  validation_sanity_check: true
+      

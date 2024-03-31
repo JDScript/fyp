@@ -1,0 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.1.2
+torchvision==0.16.2
+diffusers[torch]==0.26.3
+transformers==4.38.2
+accelerate==0.28.0
+xformers==0.0.23.post1
+gradio==4.22.0
+einops==0.7.0
+omegaconf==2.3.0
+tensorboard==2.16.2
