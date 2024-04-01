@@ -21,21 +21,21 @@ datasets:
   train_dataset:
     target: datasets.MVImageDepthDataset
     params:
-      root: ../new_renderings
+      root: ../autodl-tmp/new_renderings
       split: train
       bg_color: three_choices
       mix_rgb_depth: true
   val_dataset:
     target: datasets.MVImageDepthDataset
     params:
-      root: ../new_renderings
+      root: ../autodl-tmp/new_renderings
       split: val
       bg_color: white
       mix_rgb_depth: true
   train_val_dataset:
     target: datasets.MVImageDepthDataset
     params:
-      root: ../new_renderings
+      root: ../autodl-tmp/new_renderings
       split: train_val
       bg_color: white
       mix_rgb_depth: true
@@ -46,9 +46,9 @@ training:
   mixed_precision: fp16
   use_ema: true
   log_with: tensorboard
-  batch_size: 1
+  batch_size: 8
   max_train_steps: 20000
-  gradient_accumulation_steps: 64
+  gradient_accumulation_steps: 8
   gradient_checkpointing: true
   checkpointing_steps: 5000
   learning_rate: 1e-4

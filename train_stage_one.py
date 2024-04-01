@@ -1,9 +1,11 @@
-from accelerate import Accelerator, logging
+from accelerate import Accelerator
+from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration
 import argparse
 import os
 import torch
 import math
+import logging
 from omegaconf import OmegaConf
 from diffusers import PNDMScheduler, AutoencoderKL
 from diffusers.training_utils import EMAModel
@@ -20,9 +22,11 @@ from torchvision.transforms import InterpolationMode
 from models.pipeline import MVDiffusionImagePipeline
 from torchvision.utils import make_grid, save_image
 from collections import defaultdict
+import diffusers
+import transformers
 
 
-logger = logging.get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -125,6 +129,20 @@ def train(conf: Config):
         log_with=conf.training.log_with,
         gradient_accumulation_steps=conf.training.gradient_accumulation_steps,
     )
+
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        level=logging.INFO,
+    )
+    logger.info(accelerator.state, main_process_only=False)
+
+    if accelerator.is_local_main_process:
+        transformers.utils.logging.set_verbosity_warning()
+        diffusers.utils.logging.set_verbosity_info()
+    else:
+        transformers.utils.logging.set_verbosity_error()
+        diffusers.utils.logging.set_verbosity_error()
 
     if accelerator.is_main_process:
         if not os.path.exists(conf.training.output_dir):
@@ -318,7 +336,7 @@ def train(conf: Config):
     )
 
     # Convert all non-trainable weights to half-precision
-    weight_dtype = torch.float16
+    weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
         weight_dtype = torch.float16
         conf.training.mixed_precision = accelerator.mixed_precision
@@ -332,10 +350,10 @@ def train(conf: Config):
         ema_unet.to(accelerator.device)
 
     clip_image_mean = torch.as_tensor(feature_extractor.image_mean)[:, None, None].to(
-        accelerator.device, dtype=weight_dtype
+        accelerator.device, dtype=torch.float32
     )
     clip_image_std = torch.as_tensor(feature_extractor.image_std)[:, None, None].to(
-        accelerator.device, dtype=weight_dtype
+        accelerator.device, dtype=torch.float32
     )
 
     num_update_steps_per_epoch = math.ceil(
