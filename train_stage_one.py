@@ -210,6 +210,7 @@ def train(conf: Config):
 
     # Enable XFormers
     if is_xformers_available() and torch.cuda.is_available():
+        print("using xformers")
         unet.enable_xformers_memory_efficient_attention()
 
     # Gradient checkpointing
@@ -289,7 +290,7 @@ def train(conf: Config):
         conf.datasets.train_val_dataset.target
     )(**conf.datasets.train_val_dataset.params)
 
-    cpu_count = os.cpu_count()
+    cpu_count = max(os.cpu_count() or 2, 8)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=conf.training.batch_size,
@@ -477,7 +478,7 @@ def train(conf: Config):
                 # same noise for different views of the same object
                 timesteps = torch.randint(
                     0,
-                    noise_scheduler.config.num_train_timesteps, # type: ignore
+                    noise_scheduler.config.num_train_timesteps,  # type: ignore
                     (bsz // conf.model.num_views,),
                     device=latents.device,
                 ).repeat_interleave(conf.model.num_views)
@@ -590,7 +591,8 @@ def train(conf: Config):
 
             # Backpropagate
             accelerator.backward(loss)
-            accelerator.clip_grad_norm_(unet.parameters(), conf.training.max_grad_norm)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(unet.parameters(), conf.training.max_grad_norm)
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
