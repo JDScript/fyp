@@ -30,6 +30,7 @@ logger = get_logger(__name__, log_level="INFO")
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
+
 def log_validation(
     dataloader,
     vae,
@@ -304,7 +305,7 @@ def train(conf: Config):
         **conf.datasets.train_dataset.params
     )
     val_dataset = retrieve_class_from_string(conf.datasets.val_dataset.target)(
-        **conf.datasets.train_dataset.params
+        **conf.datasets.val_dataset.params
     )
     train_val_dataset = retrieve_class_from_string(
         conf.datasets.train_val_dataset.target
@@ -608,12 +609,16 @@ def train(conf: Config):
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(conf.training.batch_size)).mean()  # type: ignore
-                train_loss += avg_loss.item() / conf.training.gradient_accumulation_steps
+                train_loss += (
+                    avg_loss.item() / conf.training.gradient_accumulation_steps
+                )
 
                 # Backpropagate
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(unet.parameters(), conf.training.max_grad_norm)
+                    accelerator.clip_grad_norm_(
+                        unet.parameters(), conf.training.max_grad_norm
+                    )
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
@@ -628,7 +633,9 @@ def train(conf: Config):
                     train_loss = 0.0
                 if global_step % conf.training.checkpointing_steps == 0:
                     if accelerator.is_main_process:
-                        save_path = os.path.join(conf.training.output_dir, f"checkpoint")
+                        save_path = os.path.join(
+                            conf.training.output_dir, f"checkpoint"
+                        )
                         accelerator.save_state(save_path)
                         try:
                             unet.module.save_pretrained(
@@ -681,7 +688,10 @@ def train(conf: Config):
                             # Switch back to the original UNet parameters.
                             ema_unet.restore(unet.parameters())
 
-            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            logs = {
+                "step_loss": loss.detach().item(),
+                "lr": lr_scheduler.get_last_lr()[0],
+            }
             progress_bar.set_postfix(**logs)
 
             if global_step >= conf.training.max_train_steps:
