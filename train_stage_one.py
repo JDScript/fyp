@@ -24,6 +24,8 @@ from collections import defaultdict
 
 logger = logging.get_logger(__name__)
 
+torch.backends.cuda.matmul.allow_tf32 = True
+
 def log_validation(
     dataloader,
     vae,
@@ -586,86 +588,86 @@ def train(conf: Config):
                 loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
                 loss = loss.mean()
 
-            # Gather the losses across all processes for logging (if we use distributed training).
-            avg_loss = accelerator.gather(loss.repeat(conf.training.batch_size)).mean()  # type: ignore
-            train_loss += avg_loss.item() / conf.training.gradient_accumulation_steps
+                # Gather the losses across all processes for logging (if we use distributed training).
+                avg_loss = accelerator.gather(loss.repeat(conf.training.batch_size)).mean()  # type: ignore
+                train_loss += avg_loss.item() / conf.training.gradient_accumulation_steps
 
-            # Backpropagate
-            accelerator.backward(loss)
+                # Backpropagate
+                accelerator.backward(loss)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(unet.parameters(), conf.training.max_grad_norm)
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+
+            # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(unet.parameters(), conf.training.max_grad_norm)
-            optimizer.step()
-            lr_scheduler.step()
-            optimizer.zero_grad()
-
-        # Checks if the accelerator has performed an optimization step behind the scenes
-        if accelerator.sync_gradients:
-            if conf.training.use_ema:
-                ema_unet.step(unet.parameters())
-                progress_bar.update(1)
-                global_step += 1
-                accelerator.log({"train_loss": train_loss}, step=global_step)
-                train_loss = 0.0
-            if global_step % conf.training.checkpointing_steps == 0:
-                if accelerator.is_main_process:
-                    save_path = os.path.join(conf.training.output_dir, f"checkpoint")
-                    accelerator.save_state(save_path)
-                    try:
-                        unet.module.save_pretrained(
-                            os.path.join(
-                                conf.training.output_dir, f"unet-{global_step}"
+                if conf.training.use_ema:
+                    ema_unet.step(unet.parameters())
+                    progress_bar.update(1)
+                    global_step += 1
+                    accelerator.log({"train_loss": train_loss}, step=global_step)
+                    train_loss = 0.0
+                if global_step % conf.training.checkpointing_steps == 0:
+                    if accelerator.is_main_process:
+                        save_path = os.path.join(conf.training.output_dir, f"checkpoint")
+                        accelerator.save_state(save_path)
+                        try:
+                            unet.module.save_pretrained(
+                                os.path.join(
+                                    conf.training.output_dir, f"unet-{global_step}"
+                                )
                             )
-                        )
-                    except:
-                        unet.save_pretrained(
-                            os.path.join(
-                                conf.training.output_dir, f"unet-{global_step}"
+                        except:
+                            unet.save_pretrained(
+                                os.path.join(
+                                    conf.training.output_dir, f"unet-{global_step}"
+                                )
                             )
+                        logger.info(f"Saved state to {save_path}")
+                if global_step % conf.training.validation_steps == 0 or (
+                    conf.training.validation_sanity_check and global_step == 1
+                ):
+                    if accelerator.is_main_process:
+                        if conf.training.use_ema:
+                            # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                            ema_unet.store(unet.parameters())
+                            ema_unet.copy_to(unet.parameters())
+                        log_validation(
+                            val_dataloader,
+                            vae,
+                            feature_extractor,
+                            image_encoder,
+                            unet,
+                            conf,
+                            accelerator,
+                            weight_dtype,
+                            global_step,
+                            "validation",
+                            vis_dir,
                         )
-                    logger.info(f"Saved state to {save_path}")
-            if global_step % conf.training.validation_steps == 0 or (
-                conf.training.validation_sanity_check and global_step == 1
-            ):
-                if accelerator.is_main_process:
-                    if conf.training.use_ema:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_unet.store(unet.parameters())
-                        ema_unet.copy_to(unet.parameters())
-                    log_validation(
-                        val_dataloader,
-                        vae,
-                        feature_extractor,
-                        image_encoder,
-                        unet,
-                        conf,
-                        accelerator,
-                        weight_dtype,
-                        global_step,
-                        "validation",
-                        vis_dir,
-                    )
-                    log_validation(
-                        val_train_dataloader,
-                        vae,
-                        feature_extractor,
-                        image_encoder,
-                        unet,
-                        conf,
-                        accelerator,
-                        weight_dtype,
-                        global_step,
-                        "validation_train",
-                        vis_dir,
-                    )
-                    if conf.training.use_ema:
-                        # Switch back to the original UNet parameters.
-                        ema_unet.restore(unet.parameters())
+                        log_validation(
+                            val_train_dataloader,
+                            vae,
+                            feature_extractor,
+                            image_encoder,
+                            unet,
+                            conf,
+                            accelerator,
+                            weight_dtype,
+                            global_step,
+                            "validation_train",
+                            vis_dir,
+                        )
+                        if conf.training.use_ema:
+                            # Switch back to the original UNet parameters.
+                            ema_unet.restore(unet.parameters())
 
-        logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
-        progress_bar.set_postfix(**logs)
+            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            progress_bar.set_postfix(**logs)
 
-        if global_step >= conf.training.max_train_steps:
-            break
+            if global_step >= conf.training.max_train_steps:
+                break
 
     # Create the pipeline using the trained modules and save it.
     accelerator.wait_for_everyone()
