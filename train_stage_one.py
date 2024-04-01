@@ -315,11 +315,8 @@ def train(conf: Config):
         unet, optimizer, train_dataloader, lr_scheduler
     )
 
-    if conf.training.use_ema:
-        ema_unet.to(accelerator.device)
-
     # Convert all non-trainable weights to half-precision
-    weight_dtype = torch.float32
+    weight_dtype = torch.float16
     if accelerator.mixed_precision == "fp16":
         weight_dtype = torch.float16
         conf.training.mixed_precision = accelerator.mixed_precision
@@ -328,12 +325,16 @@ def train(conf: Config):
         conf.training.mixed_precision = accelerator.mixed_precision
     image_encoder.to(accelerator.device, dtype=weight_dtype)
     vae.to(accelerator.device, dtype=weight_dtype)
+    unet.to(accelerator.device, dtype=weight_dtype)
+
+    if conf.training.use_ema:
+        ema_unet.to(accelerator.device, dtype=weight_dtype)
 
     clip_image_mean = torch.as_tensor(feature_extractor.image_mean)[:, None, None].to(
-        accelerator.device, dtype=torch.float32
+        accelerator.device, dtype=weight_dtype
     )
     clip_image_std = torch.as_tensor(feature_extractor.image_std)[:, None, None].to(
-        accelerator.device, dtype=torch.float32
+        accelerator.device, dtype=weight_dtype
     )
 
     num_update_steps_per_epoch = math.ceil(
