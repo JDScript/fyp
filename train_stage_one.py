@@ -290,7 +290,7 @@ def train(conf: Config):
         conf.datasets.train_val_dataset.target
     )(**conf.datasets.train_val_dataset.params)
 
-    cpu_count = max(os.cpu_count() or 2, 8)
+    cpu_count = min(os.cpu_count() or 2, 8)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=conf.training.batch_size,
@@ -463,6 +463,7 @@ def train(conf: Config):
                         feature_extractor.crop_size["width"],
                     ],
                     interpolation=InterpolationMode.BICUBIC,
+                    antialias=True,
                 )
                 # do the normalization in float32 to preserve precision
                 imgs_in_proc = (
