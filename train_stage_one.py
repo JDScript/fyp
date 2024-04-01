@@ -325,10 +325,9 @@ def train(conf: Config):
         conf.training.mixed_precision = accelerator.mixed_precision
     image_encoder.to(accelerator.device, dtype=weight_dtype)
     vae.to(accelerator.device, dtype=weight_dtype)
-    unet.to(accelerator.device, dtype=weight_dtype)
 
     if conf.training.use_ema:
-        ema_unet.to(accelerator.device, dtype=weight_dtype)
+        ema_unet.to(accelerator.device)
 
     clip_image_mean = torch.as_tensor(feature_extractor.image_mean)[:, None, None].to(
         accelerator.device, dtype=weight_dtype
