@@ -62,7 +62,7 @@ def log_validation(
         pipeline.enable_xformers_memory_efficient_attention()
 
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
-    for i, batch in enumerate(dataloader):
+    for i, batch in tqdm(enumerate(dataloader), desc=f"{name} steps"):
         # (B, Nv, 3, H, W)
         imgs_in, imgs_out = batch["imgs_in"], batch["imgs_out"]
         # (B, Nv, Nce)
