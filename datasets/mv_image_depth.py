@@ -25,6 +25,7 @@ class MVImageDepthDataset(Dataset):
         bg_color="three_choices",
         size=(256, 256),
         num_views: int = 6,
+        backup_scene: int = 0,
     ) -> None:
         self.root = Path(__file__).parent.parent / root
         self.split = verify_str_arg(split, "split", ("train", "val", "train_val"))
@@ -44,6 +45,11 @@ class MVImageDepthDataset(Dataset):
             self.uids = self.uids[-validation_samples:]
         if split == "train_val":
             self.uids = self.uids[:validation_samples]
+        
+        if self.mix_rgb_depth:
+            self.backup = self.__getitem_mix__(backup_scene)
+        else:
+            self.backup = self.__getitem_joint__(backup_scene)
 
     def load_fixed_camera_poses(self):
         poses_dir = Path(__file__).parent / "./poses"
@@ -284,8 +290,8 @@ class MVImageDepthDataset(Dataset):
             return self.__getitem_joint__(index)
         except:
             uid = self.uids[index]
-            print(uid)
-            return {}
+            print("load error ", uid)
+            return self.backup
 
     def __len__(self) -> int:
         return len(self.uids)
