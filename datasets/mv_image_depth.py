@@ -278,9 +278,14 @@ class MVImageDepthDataset(Dataset):
         }
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        if self.mix_rgb_depth:
-            return self.__getitem_mix__(index)
-        return self.__getitem_joint__(index)
+        try:
+            if self.mix_rgb_depth:
+                return self.__getitem_mix__(index)
+            return self.__getitem_joint__(index)
+        except:
+            uid = self.uids[index]
+            print(uid)
+            return {}
 
     def __len__(self) -> int:
         return len(self.uids)
