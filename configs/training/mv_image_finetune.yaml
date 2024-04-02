@@ -2,7 +2,7 @@ name: mv_image
 model:
   num_views: 6
   pretrained: lambdalabs/sd-image-variations-diffusers
-  pretrained_unet:
+  pretrained_unet: flamehaze1115/wonder3d-v1.0
   unet:
     target: models.model.UNetMV2DConditionModel
     params:
@@ -10,8 +10,8 @@ model:
       projection_class_embeddings_input_dim: 10
       num_views: 6
       sample_size: 32
-      zero_init_conv_in: true
-      zero_init_camera_projection: true
+      zero_init_conv_in: false
+      zero_init_camera_projection: false
       cd_attention_last: false
       cd_attention_mid: false
       multiview_attention: true

@@ -174,11 +174,18 @@ def train(conf: Config):
     )
     assert isinstance(vae, AutoencoderKL)
     unet_cls = retrieve_class_from_string(conf.model.unet.target)
-    unet = unet_cls.from_pretrained_2d(
-        pretrained_model_name_or_path=conf.model.pretrained,
-        subfolder="unet",
-        **conf.model.unet.params,  # type: ignore
-    )
+    if conf.model.pretrained_unet:
+        unet = unet_cls.from_pretrained_2d(
+            pretrained_model_name_or_path=conf.model.pretrained_unet,
+            subfolder="unet",
+            **conf.model.unet.params,  # type: ignore
+        )
+    else:
+        unet = unet_cls.from_pretrained_2d(
+            pretrained_model_name_or_path=conf.model.pretrained,
+            subfolder="unet",
+            **conf.model.unet.params,  # type: ignore
+        )
     assert isinstance(unet, unet_cls)
 
     if conf.training.use_ema:
