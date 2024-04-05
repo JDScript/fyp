@@ -42,13 +42,13 @@ datasets:
 training:
   resume_from_checkpoint: null
   trainable_modules: null
-  output_dir: outputs/mv_image
+  output_dir: ../autodl-tmp/outputs/mv_image
   mixed_precision: fp16
   use_ema: true
   log_with: tensorboard
   batch_size: 8
   max_train_steps: 20000
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 16
   gradient_checkpointing: true
   checkpointing_steps: 5000
   learning_rate: 1e-4

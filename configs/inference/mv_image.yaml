@@ -2,7 +2,7 @@ name: mv_image
 model:
   num_views: 6
   pretrained: lambdalabs/sd-image-variations-diffusers
-  pretrained_unet: flamehaze1115/wonder3d-v1.0
+  pretrained_unet: ./outputs/mv_image_finetune
   unet:
     target: models.model.UNetMV2DConditionModel
     params:
@@ -42,7 +42,7 @@ datasets:
 training:
   resume_from_checkpoint: null
   trainable_modules: null
-  output_dir: ../autodl-tmp/outputs/mv_image_finetune
+  output_dir: outputs/mv_image
   mixed_precision: fp16
   use_ema: true
   log_with: tensorboard
