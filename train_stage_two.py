@@ -567,6 +567,7 @@ def train(conf: Config):
                         1, number_of_views, 1, 1, 1
                     )
                     image_mask = rearrange(image_mask, "B Nv C H W -> (B Nv) C H W")
+                    image_mask = torch.cat([image_mask] * 2, dim=0)
                     # Final image conditioning.
                     cond_vae_embeddings = image_mask * cond_vae_embeddings
 
@@ -581,6 +582,7 @@ def train(conf: Config):
                         1, number_of_views, 1, 1
                     )
                     clip_mask = rearrange(clip_mask, "B Nv M C -> (B Nv) M C")
+                    clip_mask = torch.cat([clip_mask] * 2, dim=0)
                     # Final image conditioning.
                     image_embeddings = clip_mask * image_embeddings
                 elif conf.training.condition_drop_type == "drop_independent":
