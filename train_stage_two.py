@@ -74,7 +74,7 @@ def log_validation(
         # repeat  (2B, Nv, 3, H, W)
         imgs_in = torch.cat([imgs_in] * 2, dim=0)
         imgs_out = torch.cat([depths_out, colors_out], dim=0)
-        # (B, Nv, Nce)
+        # (2B, Nv, Nce)
         camera_embeddings = torch.cat([batch["camera_embeddings"]] * 2, dim=0)
         task_embeddings = torch.cat(
             [batch["depth_task_embeddings"], batch["color_task_embeddings"]], dim=0
@@ -103,7 +103,7 @@ def log_validation(
                     num_images_per_prompt=1,
                     eta=1.0,
                 ).images  # type: ignore
-                shape = out.shape  # type:ignore
+                shape = out.shape  # type: ignore
                 out0, out1 = out[: shape[0] // 2], out[shape[0] // 2 :]
                 out = []
                 for ii in range(shape[0] // 2):
