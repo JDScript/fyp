@@ -45,7 +45,7 @@ class MVImageDepthDataset(Dataset):
             self.uids = self.uids[-validation_samples:]
         if split == "train_val":
             self.uids = self.uids[:validation_samples]
-        
+
         if self.mix_rgb_depth:
             self.backup = self.__getitem_mix__(backup_scene)
         else:
@@ -86,7 +86,7 @@ class MVImageDepthDataset(Dataset):
 
         return torch.from_numpy(img)
 
-    def load_depth(self, depth_path: Path):
+    def load_depth(self, depth_path: Path, bg_color: np.ndarray):
         depth = np.array(Image.open(depth_path).resize(self.size))
         depth = depth.astype(np.float32) / 255.0
 
@@ -94,7 +94,7 @@ class MVImageDepthDataset(Dataset):
 
         alpha = depth[:, :, 3:]
         depth = depth[:, :, :3]
-        depth = depth[..., :3] * alpha + np.array([1.0, 1.0, 1.0]) * (1 - alpha)
+        depth = depth[..., :3] * alpha + bg_color * (1 - alpha)
 
         return torch.from_numpy(depth)
 
@@ -164,6 +164,7 @@ class MVImageDepthDataset(Dataset):
             if read_depth:
                 depth_tensor = self.load_depth(
                     self.root / uid / f"depth_{view}.webp",
+                    bg_color,
                 ).permute(2, 0, 1)
                 img_tensors_out.append(depth_tensor)
             elevation, azimuth = self.get_T(tgt_w2c, condition_w2c)
@@ -242,6 +243,7 @@ class MVImageDepthDataset(Dataset):
 
             depth_tensor = self.load_depth(
                 self.root / uid / f"depth_{view}.webp",
+                bg_color,
             ).permute(2, 0, 1)
             depth_tensors_out.append(depth_tensor)
 
@@ -298,7 +300,9 @@ class MVImageDepthDataset(Dataset):
 
 
 if __name__ == "__main__":
-    dataset = MVImageDepthDataset(root="../new_renderings", split="train_val", mix_rgb_depth=False)
+    dataset = MVImageDepthDataset(
+        root="../new_renderings", split="train_val", mix_rgb_depth=False
+    )
     out = dataset[0]
     for key in out:
         print(key, out[key].shape)

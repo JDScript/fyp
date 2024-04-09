@@ -1,4 +1,4 @@
-name: mv_image
+name: mv_image_finetune
 model:
   num_views: 6
   pretrained: lambdalabs/sd-image-variations-diffusers
@@ -37,7 +37,7 @@ datasets:
     params:
       root: ../autodl-tmp/new_renderings
       split: train_val
-      bg_color: white
+      bg_color: three_choices
       mix_rgb_depth: true
 training:
   resume_from_checkpoint: null
@@ -49,8 +49,8 @@ training:
   batch_size: 8
   max_train_steps: 20000
   gradient_accumulation_steps: 16
-  gradient_checkpointing: true
-  checkpointing_steps: 5000
+  gradient_checkpointing: false
+  checkpointing_steps: 1000
   learning_rate: 1e-4
   optimizer:
     target: torch.optim.AdamW
@@ -69,4 +69,3 @@ training:
   max_grad_norm: 1.0
   validation_steps: 1000
   validation_sanity_check: true
-      
