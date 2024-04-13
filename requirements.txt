@@ -9,3 +9,4 @@ gradio==4.22.0
 einops==0.7.0
 omegaconf==2.3.0
 tensorboard==2.16.2
+rembg[gpu]==2.0.56

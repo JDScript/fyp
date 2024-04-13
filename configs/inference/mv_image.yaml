@@ -2,7 +2,7 @@ name: mv_image
 model:
   num_views: 6
   pretrained: lambdalabs/sd-image-variations-diffusers
-  pretrained_unet: ./outputs/mv_image_finetune
+  pretrained_unet: ./outputs/mv_image_finetune_14k
   unet:
     target: models.model.UNetMV2DConditionModel
     params:
