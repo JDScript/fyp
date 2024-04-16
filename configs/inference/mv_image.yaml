@@ -2,7 +2,7 @@ name: mv_image
 model:
   num_views: 6
   pretrained: lambdalabs/sd-image-variations-diffusers
-  pretrained_unet: ./outputs/mv_image_finetune_14k
+  pretrained_unet: ./outputs/mv_joint
   unet:
     target: models.model.UNetMV2DConditionModel
     params:
@@ -13,7 +13,7 @@ model:
       zero_init_conv_in: false
       zero_init_camera_projection: false
       cd_attention_last: false
-      cd_attention_mid: false
+      cd_attention_mid: true
       multiview_attention: true
       sparse_mv_attention: false
       mvcd_attention: false

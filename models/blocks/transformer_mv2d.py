@@ -758,6 +758,8 @@ class MVAttnProcessor:
         temb=None,
         num_views=1,
         multiview_attention=True,
+        sparse_mv_attention=False,
+        mvcd_attention=False,
     ):
         residual = hidden_states
 

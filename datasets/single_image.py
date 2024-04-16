@@ -9,7 +9,7 @@ from pathlib import Path
 class SingleImageDataset(Dataset):
     VIEWS = ["front", "front_right", "right", "back", "left", "front_left"]
 
-    def __init__(self, image: Image.Image, num_views: int = 6) -> None:
+    def __init__(self, image: np.ndarray, num_views: int = 6) -> None:
         super().__init__()
         self.image = image
         self.fixed_camera_poses = self.load_fixed_camera_poses()

@@ -5,11 +5,15 @@ import os
 import PIL.Image
 import rembg
 import numpy as np
+import subprocess
+import glob
+from datetime import datetime
 from omegaconf import OmegaConf
 from datasets import MVImageDepthDataset, SingleImageDataset
 from torchvision.transforms import ToPILImage
 from config import Config
 from diffusers import PNDMScheduler, AutoencoderKL
+from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
 from diffusers.utils.import_utils import is_xformers_available
 from transformers import CLIPVisionModelWithProjection, CLIPImageProcessor
 from utils.cls import retrieve_class_from_string
@@ -17,6 +21,9 @@ from models.pipeline import MVDiffusionImagePipeline
 from torch.utils.data import DataLoader
 from einops import rearrange
 from utils.depth import depth2normal
+from pathlib import Path
+from segment_anything import sam_model_registry, SamPredictor
+from functools import partial
 
 os.environ["OMP_NUM_THREADS"] = str(os.cpu_count() or 1)
 
@@ -32,34 +39,34 @@ conf = OmegaConf.load(args.config)
 conf = OmegaConf.merge(schema, conf)
 
 dataset = MVImageDepthDataset(root="../new_renderings", mix_rgb_depth=False)
-remove_bg_session = rembg.new_session("isnet-general-use")
+remove_bg_session = rembg.new_session()
 
 pipeline: None | MVDiffusionImagePipeline = None
+pipelineLoading = False
 
 
-def save_image(tensor):
-    ndarr = (
-        tensor.mul(255)
-        .add_(0.5)
-        .clamp_(0, 255)
-        .permute(1, 2, 0)
-        .to("cpu", torch.uint8)
-        .numpy()
-    )
+def add_margin(pil_img, color=0, size=256):
+    width, height = pil_img.size
+    result = PIL.Image.new(pil_img.mode, (size, size), color)
+    result.paste(pil_img, ((size - width) // 2, (size - height) // 2))
+    return result
+
+
+def tensor2ndarr(tensor: torch.Tensor):
+    ndarr = tensor.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to("cpu").numpy()
+
+    assert isinstance(ndarr, np.ndarray)
     return ndarr
 
 
 def lazy_load_pipeline():
     global pipeline
-    if pipeline is not None:
+    global pipelineLoading
+    if pipeline is not None or pipelineLoading:
         return
+    pipelineLoading = True
     gr.Info("Model not loaded yet, may take some time to load the model")
     # Load all the components
-    noise_scheduler = PNDMScheduler.from_pretrained(
-        pretrained_model_name_or_path=conf.model.pretrained,
-        subfolder="scheduler",
-    )
-    assert isinstance(noise_scheduler, PNDMScheduler)
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(
         pretrained_model_name_or_path=conf.model.pretrained,
         subfolder="image_encoder",
@@ -99,7 +106,7 @@ def lazy_load_pipeline():
         vae=vae,
         unet=unet,
         safety_checker=None,
-        scheduler=PNDMScheduler.from_pretrained(
+        scheduler=DPMSolverMultistepScheduler.from_pretrained(
             conf.model.pretrained, subfolder="scheduler"
         ),
     )
@@ -110,6 +117,7 @@ def lazy_load_pipeline():
             pipeline.enable_xformers_memory_efficient_attention()
 
     gr.Info("Model loaded, starting inferencing!")
+    pipelineLoading = False
 
 
 def visualize_dataset(index: int):
@@ -124,7 +132,7 @@ def visualize_dataset(index: int):
     )
 
 
-def run_inference(image: PIL.Image.Image, denoising_step: int, guidance_scale: int):
+def run_inference(image: np.ndarray, denoising_step: int, guidance_scale: int):
     global pipeline
 
     data = SingleImageDataset(image)
@@ -157,45 +165,109 @@ def run_inference(image: PIL.Image.Image, denoising_step: int, guidance_scale: i
         num_inference_steps=denoising_step,
     ).images
 
-    bsz = out.shape[0] // 2
-    depths_pred = out[:bsz]
-    images_pred = out[bsz:]
+    mid = out.shape[0] // 2
+    depths_pred: list[torch.Tensor] = out[:mid]  # type: ignore
+    images_pred: list[torch.Tensor] = out[mid:]  # type: ignore
 
-    images_pred = [save_image(images_pred[i]) for i in range(bsz)]
-    depths_pred = [
-        np.mean(save_image(depths_pred[i]), axis=2).astype(np.uint8) for i in range(bsz)
+    normals = [
+        depth2normal(np.mean(tensor2ndarr(depths_pred[i]), axis=2)) for i in range(mid)
     ]
-    normal_pred = [
-        depth2normal(
-            np.mean(
-                out[i]
-                .mul(255)
-                .add_(0.5)
-                .clamp_(0, 255)
-                .permute(1, 2, 0)
-                .to("cpu")
-                .numpy(),
-                axis=2,
-            )
-        )
-        for i in range(bsz)
-    ]
+    images = [tensor2ndarr(images_pred[i]).astype(np.uint8) for i in range(mid)]
+    depths = [tensor2ndarr(depths_pred[i]).astype(np.uint8) for i in range(mid)]
 
-    out = images_pred + depths_pred + normal_pred
+    # Save to disk
+    cur_dir = Path(__file__).parent
+    scene = "scene" + datetime.now().strftime("@%Y%m%d-%H%M%S")
+    scene_dir = cur_dir / "outputs" / scene
+    os.makedirs(scene_dir, exist_ok=True)
+    for view_idx in range(6):
+        view = SingleImageDataset.VIEWS[view_idx]
+        rgb_filename = f"rgb_{view}.png"
+        depth_filename = f"depth_{view}.png"
+        normal_filename = f"normal_{view}.png"
+
+        # Mask shape (256, 256)
+        rgb_mask = rembg.remove(
+            images[view_idx], only_mask=True, session=remove_bg_session
+        )  # (256, 256)
+        depth_mask = rembg.remove(
+            depths[view_idx], only_mask=True, session=remove_bg_session
+        )  # (256, 256)
+        assert isinstance(rgb_mask, np.ndarray)
+        assert isinstance(depth_mask, np.ndarray)
+
+        # Apply mask with added alpha channel
+        images[view_idx] = np.dstack([images[view_idx], rgb_mask])
+        depths[view_idx] = np.dstack([depths[view_idx], depth_mask])
+        normals[view_idx] = np.dstack([normals[view_idx], depth_mask])
+
+        # Save
+        PIL.Image.fromarray(images[view_idx]).save(scene_dir / rgb_filename)
+        PIL.Image.fromarray(depths[view_idx]).save(scene_dir / depth_filename)
+        PIL.Image.fromarray(normals[view_idx]).save(scene_dir / normal_filename)
+
+    out = images + depths + normals + [scene]
 
     return out
 
 
-def remove_bg(data: PIL.Image.Image):
-    data = data.resize((256, 256))
-    mask = rembg.remove(
+def remove_bg(data: np.ndarray):
+    image = rembg.remove(
         data,
         session=remove_bg_session,
-        bgcolor=(255, 255, 255, 255),
-        alpha_matting=True,
-        # sam_prompt=[{"type": "point", "data": [0, 0], "label": 1}],
     )
-    return mask
+
+    assert isinstance(image, np.ndarray)
+
+    alpha = image[:, :, 3]
+    coords: np.ndarray[torch.Any, np.dtype[np.signedinteger[torch.Any]]] = np.stack(
+        np.nonzero(alpha), 1
+    )[:, (1, 0)]
+    min_x, min_y = np.min(coords, 0)
+    max_x, max_y = np.max(coords, 0)
+
+    ref_image = PIL.Image.fromarray(image).crop((min_x, min_y, max_x, max_y))
+    h, w = ref_image.height, ref_image.width
+    scale = 144 / max(h, w)
+    h_, w_ = int(scale * h), int(scale * w)
+    ref_image = ref_image.resize((w_, h_))
+    ref_image = add_margin(ref_image, size=256)
+    img = np.array(ref_image)  # np.uint8
+
+    alpha = img[..., 3:4]
+    # White background to img
+    img = img[..., :3] * (alpha / 255) + 255 * (1 - (alpha / 255))
+
+    return img.astype(np.uint8)
+
+
+def reconstruct3d(scene, need_reconstruct):
+    if not need_reconstruct:
+        return None
+    cmds = [
+        "python",
+        "launch.py",
+        "--config",
+        "configs/neuralangelo-mvimage-depth.yaml",
+        "--train",
+        "--gpu",
+        "0",
+        f"dataset.scene={scene}",
+    ]
+
+    ret = subprocess.run(cmds, cwd=Path(__file__).parent / "instant-nsr-pl")
+    if ret.returncode != 0:
+        gr.Error(str(ret.stderr))
+        return
+
+    objs = glob.glob(
+        f"{Path(__file__).parent}/instant-nsr-pl/exp/{scene}/*/save/*.obj",
+        recursive=True,
+    )
+    if objs:
+        return objs[0]
+    gr.Error("No reconstructed obj file found")
+    return None
 
 
 with gr.Blocks(title="FYP23041 Demo") as demo:
@@ -203,18 +275,24 @@ with gr.Blocks(title="FYP23041 Demo") as demo:
     with gr.Tab("Model Inference"):
         with gr.Row(equal_height=True):
             input_image = gr.Image(
-                type="pil",
+                type="numpy",
                 label="Input Image",
                 sources=["upload"],
             )
             masked_image = gr.Image(
-                type="pil",
+                type="numpy",
                 label="Masked Image",
                 interactive=False,
             )
-            final_model = gr.Model3D(label="Reconstructed Model")
+            final_model = gr.Model3D(
+                label="Reconstructed Model",
+                interactive=False,
+            )
         with gr.Row():
+            need_reconstruct = gr.Checkbox(label="Reconstruct 3D Model", value=True)
             inference_button = gr.Button("Run", size="sm")
+        with gr.Row():
+            scene = gr.Textbox(value="scene", label="Scene Name", interactive=False)
         with gr.Row():
             rgb1 = gr.Image(height=256, interactive=False, label="rgb_front")
             rgb2 = gr.Image(height=256, interactive=False, label="rgb_front_right")
@@ -315,10 +393,14 @@ with gr.Blocks(title="FYP23041 Demo") as demo:
             normal4,
             normal5,
             normal6,
+            scene,
         ],
+    ).success(
+        reconstruct3d, inputs=[scene, need_reconstruct], outputs=[final_model]
     )
 
 if __name__ == "__main__":
     demo.launch(
         server_name="0.0.0.0",
     )
+    lazy_load_pipeline()

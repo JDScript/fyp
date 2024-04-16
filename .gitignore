@@ -5,3 +5,6 @@ __pycache__/
 pretrain_weights/*
 !pretrain_weights/.gitkeep
 /outputs
+/sam_pt
+/exp
+/runs
