@@ -39,7 +39,7 @@ conf = OmegaConf.load(args.config)
 conf = OmegaConf.merge(schema, conf)
 
 dataset = MVImageDepthDataset(root="../new_renderings", mix_rgb_depth=False)
-remove_bg_session = rembg.new_session()
+remove_bg_session = rembg.new_session("isnet-general-use")
 
 pipeline: None | MVDiffusionImagePipeline = None
 pipelineLoading = False
@@ -188,10 +188,10 @@ def run_inference(image: np.ndarray, denoising_step: int, guidance_scale: int):
 
         # Mask shape (256, 256)
         rgb_mask = rembg.remove(
-            images[view_idx], only_mask=True, session=remove_bg_session
+            images[view_idx], only_mask=True, session=remove_bg_session, alpha_matting=True
         )  # (256, 256)
         depth_mask = rembg.remove(
-            depths[view_idx], only_mask=True, session=remove_bg_session
+            depths[view_idx], only_mask=True, session=remove_bg_session, alpha_matting=True
         )  # (256, 256)
         assert isinstance(rgb_mask, np.ndarray)
         assert isinstance(depth_mask, np.ndarray)

@@ -16,7 +16,7 @@ model:
       cd_attention_mid: true
       multiview_attention: true
       sparse_mv_attention: false
-      mvcd_attention: false
+      mvcd_attention: true
 datasets:
   train_dataset:
     target: datasets.MVImageDepthDataset
