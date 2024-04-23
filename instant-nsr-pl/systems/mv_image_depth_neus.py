@@ -238,12 +238,13 @@ class MVImageDepthNeuSSystem(BaseSystem):
         self.log("train/loss_rgb", loss_rgb_l1)
         loss += loss_rgb_l1 * self.C(self.config.system.loss.lambda_rgb_l1)
 
-        # depth loss
+        # MSE: depth loss
         loss_depth = F.mse_loss(
-            (out["depth"] / 4.0)[fg_mask > 0],
-            batch["depth"][fg_mask > 0],
+            (out["depth"])[fg_mask > 0],
+            (batch["depth"] * 4.0)[fg_mask > 0],
             reduction="none",
         )
+        loss_depth /= 2
         loss_depth = ranking_loss(
             loss_depth.sum(dim=1),
             extra_weights=view_weights[fg_mask > 0],
@@ -434,6 +435,11 @@ class MVImageDepthNeuSSystem(BaseSystem):
                 else []
             )
             + [
+                {
+                    "type": "grayscale",
+                    "img": (batch["depth"] * 4.0).view(H, W),
+                    "kwargs": {},
+                },
                 {"type": "grayscale", "img": out["depth"].view(H, W), "kwargs": {}},
                 {
                     "type": "rgb",

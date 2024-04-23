@@ -12,8 +12,10 @@ from omegaconf import OmegaConf
 from datasets import MVImageDepthDataset, SingleImageDataset
 from torchvision.transforms import ToPILImage
 from config import Config
-from diffusers import PNDMScheduler, AutoencoderKL
-from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
+from diffusers import PNDMScheduler, AutoencoderKL, LCMScheduler
+from diffusers.schedulers.scheduling_dpmsolver_multistep import (
+    DPMSolverMultistepScheduler,
+)
 from diffusers.utils.import_utils import is_xformers_available
 from transformers import CLIPVisionModelWithProjection, CLIPImageProcessor
 from utils.cls import retrieve_class_from_string
@@ -42,7 +44,6 @@ dataset = MVImageDepthDataset(root="../new_renderings", mix_rgb_depth=False)
 remove_bg_session = rembg.new_session("isnet-general-use")
 
 pipeline: None | MVDiffusionImagePipeline = None
-pipelineLoading = False
 
 
 def add_margin(pil_img, color=0, size=256):
@@ -61,8 +62,7 @@ def tensor2ndarr(tensor: torch.Tensor):
 
 def lazy_load_pipeline():
     global pipeline
-    global pipelineLoading
-    if pipeline is not None or pipelineLoading:
+    if pipeline is not None:
         return
     pipelineLoading = True
     gr.Info("Model not loaded yet, may take some time to load the model")
@@ -106,7 +106,7 @@ def lazy_load_pipeline():
         vae=vae,
         unet=unet,
         safety_checker=None,
-        scheduler=DPMSolverMultistepScheduler.from_pretrained(
+        scheduler=LCMScheduler.from_pretrained(
             conf.model.pretrained, subfolder="scheduler"
         ),
     )
@@ -186,20 +186,26 @@ def run_inference(image: np.ndarray, denoising_step: int, guidance_scale: int):
         depth_filename = f"depth_{view}.png"
         normal_filename = f"normal_{view}.png"
 
-        # Mask shape (256, 256)
-        rgb_mask = rembg.remove(
-            images[view_idx], only_mask=True, session=remove_bg_session, alpha_matting=True
-        )  # (256, 256)
-        depth_mask = rembg.remove(
-            depths[view_idx], only_mask=True, session=remove_bg_session, alpha_matting=True
-        )  # (256, 256)
-        assert isinstance(rgb_mask, np.ndarray)
-        assert isinstance(depth_mask, np.ndarray)
+        # # Mask shape (256, 256)
+        # rgb_mask = rembg.remove(
+        #     images[view_idx],
+        #     only_mask=True,
+        #     session=remove_bg_session,
+        #     alpha_matting=True,
+        # )  # (256, 256)
+        # depth_mask = rembg.remove(
+        #     depths[view_idx],
+        #     only_mask=True,
+        #     session=remove_bg_session,
+        #     alpha_matting=True,
+        # )  # (256, 256)
+        # assert isinstance(rgb_mask, np.ndarray)
+        # assert isinstance(depth_mask, np.ndarray)
 
-        # Apply mask with added alpha channel
-        images[view_idx] = np.dstack([images[view_idx], rgb_mask])
-        depths[view_idx] = np.dstack([depths[view_idx], depth_mask])
-        normals[view_idx] = np.dstack([normals[view_idx], depth_mask])
+        # # Apply mask with added alpha channel
+        # images[view_idx] = np.dstack([images[view_idx], rgb_mask])
+        # depths[view_idx] = np.dstack([depths[view_idx], depth_mask])
+        # normals[view_idx] = np.dstack([normals[view_idx], depth_mask])
 
         # Save
         PIL.Image.fromarray(images[view_idx]).save(scene_dir / rgb_filename)
@@ -212,10 +218,14 @@ def run_inference(image: np.ndarray, denoising_step: int, guidance_scale: int):
 
 
 def remove_bg(data: np.ndarray):
-    image = rembg.remove(
-        data,
-        session=remove_bg_session,
-    )
+    print(data.shape)
+    if data.shape[-1] == 4:
+        image = data
+    else:
+        image = rembg.remove(
+            data,
+            session=remove_bg_session,
+        )
 
     assert isinstance(image, np.ndarray)
 
@@ -241,9 +251,7 @@ def remove_bg(data: np.ndarray):
     return img.astype(np.uint8)
 
 
-def reconstruct3d(scene, need_reconstruct):
-    if not need_reconstruct:
-        return None
+def reconstruct3d(scene):
     cmds = [
         "python",
         "launch.py",
@@ -272,12 +280,20 @@ def reconstruct3d(scene, need_reconstruct):
 
 with gr.Blocks(title="FYP23041 Demo") as demo:
     gr.Markdown("# FYP23041 Demo")
+    scene = gr.State()
+    with gr.Row():
+        gr.Model3D("./gallery/1.obj")
+        gr.Model3D("./gallery/2.obj")
+        gr.Model3D("./gallery/3.obj")
+        gr.Model3D("./gallery/4.obj")
+        gr.Model3D("./gallery/5.obj")
     with gr.Tab("Model Inference"):
         with gr.Row(equal_height=True):
             input_image = gr.Image(
                 type="numpy",
                 label="Input Image",
                 sources=["upload"],
+                image_mode="RGBA"
             )
             masked_image = gr.Image(
                 type="numpy",
@@ -289,10 +305,21 @@ with gr.Blocks(title="FYP23041 Demo") as demo:
                 interactive=False,
             )
         with gr.Row():
-            need_reconstruct = gr.Checkbox(label="Reconstruct 3D Model", value=True)
-            inference_button = gr.Button("Run", size="sm")
+            example_fns = [
+                np.asarray(PIL.Image.open(os.path.join("./examples", example)).convert("RGBA"))
+                for example in os.listdir("./examples")
+            ]
+            gr.Examples(
+                examples=example_fns,
+                inputs=[input_image],
+                outputs=[
+                    input_image,
+                ],
+                label="Click one and start the diffusion process.",
+            )
         with gr.Row():
-            scene = gr.Textbox(value="scene", label="Scene Name", interactive=False)
+            inference_button = gr.Button("Run Diffusion", size="sm")
+            reconstruct_button = gr.Button("Reconstruct", size="sm", interactive=False)
         with gr.Row():
             rgb1 = gr.Image(height=256, interactive=False, label="rgb_front")
             rgb2 = gr.Image(height=256, interactive=False, label="rgb_front_right")
@@ -353,7 +380,7 @@ with gr.Blocks(title="FYP23041 Demo") as demo:
         btn.click(visualize_dataset, inputs=[slider], outputs=[images, depths])
     with gr.Tab("Settings"):
         denoising_step = gr.Slider(
-            minimum=20,
+            minimum=1,
             maximum=100,
             step=1,
             label="Denoising Step",
@@ -395,12 +422,9 @@ with gr.Blocks(title="FYP23041 Demo") as demo:
             normal6,
             scene,
         ],
-    ).success(
-        reconstruct3d, inputs=[scene, need_reconstruct], outputs=[final_model]
     )
 
+    reconstruct_button.click(reconstruct3d, inputs=[scene], outputs=[final_model])
+
 if __name__ == "__main__":
-    demo.launch(
-        server_name="0.0.0.0",
-    )
-    lazy_load_pipeline()
+    demo.launch(server_name="0.0.0.0")

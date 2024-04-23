@@ -1,0 +1,3 @@
+[submodule "submodules/diff-gaussian-rasterization-depth-acc"]
+	path = submodules/diff-gaussian-rasterization-depth-acc
+	url = https://github.com/robot0321/diff-gaussian-rasterization-depth-acc
